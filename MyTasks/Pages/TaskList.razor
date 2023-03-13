@@ -1,0 +1,120 @@
+﻿@page "/tasklist"
+@using MyTasks.Data
+@using MyTasks.Interfaces
+@using MyTasks.Models
+@using MyTasks.Services
+@using MudBlazor
+
+@if (loading)
+{
+    <MudProgressCircular Color="Color.Info" Indeterminate="true" />
+}
+else
+{
+    <h3>Task list</h3>
+    <h1>Todo (@allTasks.Count(todo => !todo.IsDone))</h1>
+    <MudTreeView T="MyTaskView" Items="@allTasks">
+        <ItemTemplate>
+            <MudTreeViewItem T="MyTaskView" @bind-Expanded="@context.IsExpanded" Items="@context.SubTasks">
+                <Content>
+                    <MudTreeViewItemToggleButton @bind-Expanded="@context.IsExpanded" Visible="@true"></MudTreeViewItemToggleButton>
+                    <MudCheckBox T="bool" Disabled="@context.IsDone" Checked="@context.IsDone" CheckedChanged="() => MarkTaskAsDone(context.Id)"/>
+                    <MudText>@context.Title</MudText>
+                    <div hidden="@context.HideAddButton" class="justify-space-between" style="flex: none; margin-left: 1em; max-width: 100em; max-height: 5em;">
+                        <MudTextField Label="Something todo" Variant="Variant.Outlined" @bind-Value="newTaskDescription"/>
+                        <MudButton Variant="Variant.Filled" Color="Color.Secondary" @onclick="() => AddSubTask(context.Id)">NewTask</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Secondary" @onclick="() => DeleteTask(context.Id)">Delete</MudButton>
+                    </div>
+                </Content>
+            </MudTreeViewItem>
+        </ItemTemplate>
+    </MudTreeView>
+    <MudGrid Class="justify-space-between" Style="max-width: 400px;">
+        <MudTextField Label="Something todo" Variant="Variant.Outlined" @bind-Value="newTaskDescription"/>
+        <MudButton Variant="Variant.Filled" Color="Color.Secondary" @onclick="AddTask">NewTask</MudButton>
+    </MudGrid>
+} 
+
+@code {
+    private string? newTaskDescription;
+    private HashSet<MyTaskView> allTasks = new();
+    private bool loading = true;
+
+    [Inject]
+    private ITaskService _taskService { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        var tasks = await _taskService.GetMainTasks();
+        var expansionState = PreserveExpansionState();
+        allTasks = new HashSet<MyTaskView>(tasks.Select(x => MyTaskView.FromModel(x)));
+        ApplyExpansionState(expansionState);
+        loading = false;
+        StateHasChanged();
+    }
+
+    private Dictionary<Guid,bool> PreserveExpansionState()
+    {
+        var result = new Dictionary<Guid, bool>();
+        if (allTasks.Any())
+        {
+            foreach(var item in allTasks)
+            {
+                result.Add(item.Id, item.IsExpanded);
+            }
+        }
+
+        return result;
+    }
+
+    private void ApplyExpansionState(Dictionary<Guid,bool> expansionStates)
+    {
+        foreach(var item in allTasks)
+        {
+            if(expansionStates.TryGetValue(item.Id, out var isExpanded))
+            {
+                item.IsExpanded = isExpanded;
+            }
+        }
+    }
+
+    private async void AddSubTask(Guid? parentTaskId)
+    {
+        if (!string.IsNullOrWhiteSpace(newTaskDescription) && parentTaskId != null)
+        {
+            loading = true;
+            await _taskService.AddSubTask(new MyTask { Title = newTaskDescription, ParentTaskId = parentTaskId });
+            newTaskDescription = string.Empty;
+            await LoadData();
+        }
+    }
+
+    private async void AddTask()
+    {
+        if (!string.IsNullOrWhiteSpace(newTaskDescription))
+        {
+            loading = true;
+            await _taskService.AddTask(new MyTask { Title = newTaskDescription });
+            newTaskDescription = string.Empty;
+            await LoadData();
+        }
+    }
+
+    private async void MarkTaskAsDone(Guid id)
+    {
+        loading = true;
+        await _taskService.MarkTaskAsDone(id);
+        await LoadData();
+    }
+
+    private async void DeleteTask(Guid id)
+    {
+        await _taskService.DeleteTask(id);
+        await LoadData();
+    }
+}
